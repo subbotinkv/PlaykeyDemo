@@ -21,7 +21,7 @@
         private static void Main()
         {
             // Чистим лог.
-            File.Delete(Path);
+            File.WriteAllText(Path, string.Empty);
 
             var listener = new TcpListener(IPAddress.Loopback, Port);
             listener.Start();
@@ -80,7 +80,17 @@
 
         private static void WriteMessageToFile(string message)
         {
-            File.AppendAllLines(Path, new[] { message });
+            // Вычитываем все строки.
+            var lines = File.ReadAllLines(Path).ToList();
+
+            // Добавляем новую строку.
+            lines.Add(message);
+
+            // Переупорядочиваем.
+            lines.Sort();
+
+            // Пишем обратно в файл.
+            File.WriteAllLines(Path, lines);
         }
 
         private static void SendMessage(string message)
