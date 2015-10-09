@@ -1,6 +1,8 @@
 ﻿namespace Server
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Text;
     using System.Threading.Tasks;
     using System.Net;
@@ -10,6 +12,8 @@
     {
         private const int Port = 11000;
         private const int BufferSize = 1024;
+
+        private static readonly List<TcpClient> Clients = new List<TcpClient>();
 
         private static void Main()
         {
@@ -25,27 +29,50 @@
 
         private static void HandleClient(TcpClient client)
         {
+            Clients.Add(client);
             Console.WriteLine("New client...");
 
             NetworkStream stream = client.GetStream();
+            
+            while (client.Connected)
+            {
+                // Получаем сообщение от клиента.
+                string message = GetMessage(stream);
 
+                // Если действительно получено сообщение, то обрабатываем его.
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    // Записываем полученное сообщение.
+                    Console.WriteLine(message);
+
+                    // Пересылаем сообщение всем.
+                    SendMessage(message);
+                }
+            }
+        }
+
+        private static string GetMessage(NetworkStream stream)
+        {
             var buffer = new byte[BufferSize];
             var sb = new StringBuilder();
 
-            while (client.Connected)
+            while (stream.DataAvailable)
             {
-                // Получаем данные от клиента.
-                while (stream.DataAvailable)
-                {
-                    int count = stream.Read(buffer, 0, BufferSize);
-                    sb.Append(Encoding.UTF8.GetString(buffer, 0, count));
-                }
+                int count = stream.Read(buffer, 0, BufferSize);
+                sb.Append(Encoding.UTF8.GetString(buffer, 0, count));
+            }
 
-                if (sb.Length > 0)
-                {
-                    Console.WriteLine(sb.ToString());
-                    sb.Clear();
-                }
+            return sb.ToString();
+        }
+
+        private static void SendMessage(string message)
+        {
+            var buffer = Encoding.UTF8.GetBytes(message);
+            var clientStreams = Clients.Select(client => client.GetStream());
+
+            foreach (NetworkStream stream in clientStreams)
+            {
+                stream.Write(buffer, 0, buffer.Length);
             }
         }
     }
