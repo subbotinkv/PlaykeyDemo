@@ -10,6 +10,7 @@
     public partial class ClientForm : Form
     {
         private const int Port = 11000;
+        private const int BufferSize = 1024;
 
         private readonly object _dummy=new object();
 
@@ -43,34 +44,48 @@
 
         private void GetNewMessages()
         {
-            NetworkStream stream = Client.GetStream();
-
-            var buffer = new byte[1024];
-            var sb = new StringBuilder();
-
             while (true)
             {
-                while (stream.DataAvailable)
-                {
-                    int count = stream.Read(buffer, 0, buffer.Length);
-                    sb.Append(Encoding.UTF8.GetString(buffer, 0, count));
-                }
-
-                if (sb.Length > 0)
+                string message = GetMessage();
+                if (!string.IsNullOrWhiteSpace(message))
                 {
                     tbLog.AppendText(Environment.NewLine);
-                    tbLog.AppendText(sb.ToString());
-                    sb.Clear();
+                    tbLog.AppendText(message);
                 }
             }
         }
 
         private void BtnSendClick(object sender, EventArgs e)
         {
+            SendMessage(tbMessage.Text);
+            tbMessage.Text = string.Empty;
+        }
+
+        private void BtnHistoryClick(object sender, EventArgs e)
+        {
+            SendMessage("GetHistory");
+        }
+
+        private string GetMessage()
+        {
             NetworkStream stream = Client.GetStream();
-            byte[] buffer = Encoding.UTF8.GetBytes(tbMessage.Text);
+            var buffer = new byte[BufferSize];
+            var sb = new StringBuilder();
+
+            while (stream.DataAvailable)
+            {
+                int count = stream.Read(buffer, 0, BufferSize);
+                sb.Append(Encoding.UTF8.GetString(buffer, 0, count));
+            }
+
+            return sb.ToString();
+        }
+
+        private void SendMessage(string message)
+        {
+            NetworkStream stream = Client.GetStream();
+            byte[] buffer = Encoding.UTF8.GetBytes(message);
             stream.Write(buffer, 0, buffer.Length);
-            tbMessage.Clear();
         }
     }
 }
