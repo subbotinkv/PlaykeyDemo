@@ -1,7 +1,7 @@
 ﻿namespace Server
 {
-    using System;
     using System.Collections.Generic;
+    using System.Configuration;
     using System.IO;
     using System.Linq;
     using System.Text;
@@ -11,112 +11,213 @@
 
     class Program
     {
-        private const int Port = 11000;
-        private const int BufferSize = 1024;
+        private const string HistoryKeyword = "GetHistory";
+
+        private static int port;
+
+        private static int bufferSize;
+
+        private static string path;
 
         private static readonly List<TcpClient> Clients = new List<TcpClient>();
 
-        private const string Path = "Log.txt";
+        private static readonly object Dummy = new object();
 
         private static void Main()
         {
-            // Чистим лог.
-            File.WriteAllText(Path, string.Empty);
-
-            var listener = new TcpListener(IPAddress.Loopback, Port);
+            Init();
+            
+            var listener = new TcpListener(IPAddress.Loopback, port);
             listener.Start();
 
             while (true)
             {
+                // Принимаем подключение от клиента.
                 TcpClient client = listener.AcceptTcpClient();
+                
+                // Запускаем его обработку в отдельном потоке.
                 Task.Factory.StartNew(() => HandleClient(client), TaskCreationOptions.LongRunning);
             }
         }
 
+        /// <summary>
+        /// Инициализация перед началом работы приложения.
+        /// </summary>
+        private static void Init()
+        {
+            // Получаем параметры из конфига.
+            var reader = new AppSettingsReader();
+            port = (int)reader.GetValue("Port", typeof(int));
+            bufferSize = (int)reader.GetValue("BufferSize", typeof(int));
+            path = (string)reader.GetValue("Path", typeof(string));
+
+            // Чистим лог.
+            File.WriteAllText(path, string.Empty);
+        }
+
+        /// <summary>
+        /// Обработка клиента (включение/исключение из списока активных клиентов и т.д.).
+        /// </summary>
+        /// <param name="client">Клиент.</param>
         private static void HandleClient(TcpClient client)
         {
-            Clients.Add(client);
-            Console.WriteLine("New client...");
+            // Т.к. доступ к списку подключенных клиентов может вестись из разных потоков, то используем блокировку.
+            lock (Dummy)
+            {
+                // Добавим в список подключенных клиентов.
+                Clients.Add(client);
+            }
 
             NetworkStream stream = client.GetStream();
-            
+
             while (client.Connected)
             {
-                // Получаем сообщение от клиента.
-                string message = GetMessage(stream);
-
-                // Если действительно получено сообщение, то обрабатываем его.
-                if (!string.IsNullOrWhiteSpace(message))
+                try
                 {
-                    if (message == "GetHistory")
-                    {
-                        SendHistory(client);
-                    }
-                    else
-                    {
-                        // Записываем полученное сообщение.
-                        WriteMessageToFile(message);
+                    HandleStream(stream);
+                }
+                catch (IOException)
+                {
+                    // Если клиент отключится (пропадет соединение и т.д.), то при работе с потоком будет вызвано исключение.
+                    // После вызова исключения свойство client.Connected автоматически изменится на false.
+                    // Дополнительной обработки это исключение не требует.
+                }
+            }
 
-                        // Пересылаем сообщение всем.
-                        SendMessage(message);
-                    }
+            lock (Dummy)
+            {
+                // Удалим из списка подключенных клиентов.
+                Clients.Remove(client);
+            }
+        }
+
+        /// <summary>
+        /// Работа с потоком клиента (получение и отправка сообщений).
+        /// </summary>
+        /// <param name="stream">Поток.</param>
+        private static void HandleStream(NetworkStream stream)
+        {
+            // Получаем сообщение от клиента.
+            string message = GetMessage(stream);
+
+            // Если сообщение не пустое, то обрабатываем его.
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                if (message == HistoryKeyword)
+                {
+                    // Если пришел запрос истории (ключевое словое "GetHitory").
+                    SendHistory(stream);
+                }
+                else
+                {
+                    // Иначе записываем полученное сообщение.
+                    WriteMessageToFile(message);
+
+                    // Пересылаем это сообщение всем.
+                    SendMessage(message);
                 }
             }
         }
 
+        /// <summary>
+        /// Получить сообщение.
+        /// </summary>
+        /// <param name="stream">Поток.</param>
+        /// <returns>Сообщение.</returns>
         private static string GetMessage(NetworkStream stream)
         {
-            var buffer = new byte[BufferSize];
+            var buffer = new byte[bufferSize];
             var sb = new StringBuilder();
 
+            // Читаем пока есть данные.
             while (stream.DataAvailable)
             {
-                int count = stream.Read(buffer, 0, BufferSize);
+                int count = stream.Read(buffer, 0, bufferSize);
                 sb.Append(Encoding.UTF8.GetString(buffer, 0, count));
+
             }
 
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Записать новое сообщение в файл.
+        /// </summary>
+        /// <param name="message">Сообщение.</param>
         private static void WriteMessageToFile(string message)
         {
-            // Вычитываем все строки.
-            var lines = File.ReadAllLines(Path).ToList();
-
-            // Добавляем новую строку.
-            lines.Add(message);
-
-            // Переупорядочиваем.
-            lines.Sort();
-
-            // Пишем обратно в файл.
-            File.WriteAllLines(Path, lines);
-        }
-
-        private static void SendMessage(string message)
-        {
-            SendMessage(Clients, message);
-        }
-
-        private static void SendMessage(TcpClient client, string message)
-        {
-            SendMessage(new[] { client }, message);
-        }
-
-        private static void SendMessage(IEnumerable<TcpClient> clients, string message)
-        {
-            var buffer = Encoding.UTF8.GetBytes(message);
-            var clientStreams = clients.Select(client => client.GetStream());
-
-            foreach (NetworkStream stream in clientStreams)
+            // Файл является разделяемым ресурсом, поэтому нужно использовать блокировку.
+            lock (Dummy)
             {
-                stream.Write(buffer, 0, buffer.Length);
+                // Проверяем наличие файла и создаем новый если его вдруг нет.
+                if (!File.Exists(path))
+                {
+                    File.Create(path);
+                }
+
+                // Вычитываем все строки.
+                var lines = File.ReadAllLines(path).ToList();
+
+                // Добавляем новую строку.
+                lines.Add(message);
+
+                // Переупорядочиваем.
+                lines.Sort();
+
+                // Пишем обратно в файл.
+                File.WriteAllLines(path, lines);
             }
         }
 
-        private static void SendHistory(TcpClient client)
+        /// <summary>
+        /// Отправить сообщение всем подключенным клиентам.
+        /// </summary>
+        /// <param name="message">Сообщение.</param>
+        private static void SendMessage(string message)
         {
-            SendMessage(client, File.ReadAllText(Path));
+            SendMessage(Clients.Select(a => a.GetStream()).ToList(), message);
+        }
+
+        /// <summary>
+        /// Отправить сообщение в поток.
+        /// </summary>
+        /// <param name="stream">Поток.</param>
+        /// <param name="message">Сообщение.</param>
+        private static void SendMessage(NetworkStream stream, string message)
+        {
+            SendMessage(new[] { stream }, message);
+        }
+
+        /// <summary>
+        /// Отправить сообщение в несколько потоков.
+        /// </summary>
+        /// <param name="streams">Потоки.</param>
+        /// <param name="message">Сообщение.</param>
+        private static void SendMessage(IEnumerable<NetworkStream> streams, string message)
+        {
+            var buffer = Encoding.UTF8.GetBytes(message);
+            foreach (NetworkStream stream in streams)
+            {
+                try
+                {
+                    stream.Write(buffer, 0, buffer.Length);
+                }
+                catch (IOException)
+                {
+                    // При работе с потоком может оказаться что он уже закрыт, потеряно подключение и т.д. Это приведет к возникновению исключения.
+                    // При возникновении исключения свойство Connected у связаного с потоком TCP-клиента автоматически изменится на false и тогда дальнейшая обработка клиента пректатится.
+                    // Дополнительной обработки не требуется.
+                }
+            }
+        }
+
+        /// <summary>
+        /// Отправить всю историю.
+        /// </summary>
+        /// <param name="stream">Поток.</param>
+        private static void SendHistory(NetworkStream stream)
+        {
+            SendMessage(stream, File.ReadAllText(path));
         }
     }
 }
