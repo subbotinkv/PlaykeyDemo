@@ -32,12 +32,14 @@
             this.tbMessage = new System.Windows.Forms.TextBox();
             this.tbLog = new System.Windows.Forms.TextBox();
             this.btnHistory = new System.Windows.Forms.Button();
+            this.btnConnect = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // btnSend
             // 
             this.btnSend.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnSend.Location = new System.Drawing.Point(442, 329);
+            this.btnSend.Enabled = false;
+            this.btnSend.Location = new System.Drawing.Point(432, 329);
             this.btnSend.Name = "btnSend";
             this.btnSend.Size = new System.Drawing.Size(75, 50);
             this.btnSend.TabIndex = 0;
@@ -52,7 +54,7 @@
             this.tbMessage.Location = new System.Drawing.Point(12, 329);
             this.tbMessage.Multiline = true;
             this.tbMessage.Name = "tbMessage";
-            this.tbMessage.Size = new System.Drawing.Size(424, 50);
+            this.tbMessage.Size = new System.Drawing.Size(414, 50);
             this.tbMessage.TabIndex = 1;
             // 
             // tbLog
@@ -71,19 +73,32 @@
             // btnHistory
             // 
             this.btnHistory.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnHistory.Location = new System.Drawing.Point(523, 329);
+            this.btnHistory.Enabled = false;
+            this.btnHistory.Location = new System.Drawing.Point(513, 329);
             this.btnHistory.Name = "btnHistory";
-            this.btnHistory.Size = new System.Drawing.Size(75, 50);
+            this.btnHistory.Size = new System.Drawing.Size(85, 23);
             this.btnHistory.TabIndex = 3;
             this.btnHistory.Text = "История";
             this.btnHistory.UseVisualStyleBackColor = true;
             this.btnHistory.Click += new System.EventHandler(this.BtnHistoryClick);
+            // 
+            // btnConnect
+            // 
+            this.btnConnect.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnConnect.Location = new System.Drawing.Point(513, 356);
+            this.btnConnect.Name = "btnConnect";
+            this.btnConnect.Size = new System.Drawing.Size(85, 23);
+            this.btnConnect.TabIndex = 4;
+            this.btnConnect.Text = "Подключить";
+            this.btnConnect.UseVisualStyleBackColor = true;
+            this.btnConnect.Click += new System.EventHandler(this.BtnConnectClick);
             // 
             // ClientForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(610, 391);
+            this.Controls.Add(this.btnConnect);
             this.Controls.Add(this.btnHistory);
             this.Controls.Add(this.tbLog);
             this.Controls.Add(this.tbMessage);
@@ -101,6 +116,7 @@
         private System.Windows.Forms.TextBox tbMessage;
         private System.Windows.Forms.TextBox tbLog;
         private System.Windows.Forms.Button btnHistory;
+        private System.Windows.Forms.Button btnConnect;
     }
 }
 
