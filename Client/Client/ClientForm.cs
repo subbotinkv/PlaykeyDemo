@@ -68,7 +68,7 @@
                 ChangeButtonsState();
 
                 // Запускаем получение новых сообщений в фоне.
-                Task.Factory.StartNew(GetNewMessages, TaskCreationOptions.LongRunning);
+                Task.Run(() => GetNewMessages());
             }
             catch (Exception)
             {

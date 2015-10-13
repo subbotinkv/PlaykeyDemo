@@ -11,23 +11,50 @@
 
     class Program
     {
+        /// <summary>
+        /// Зарезервированное слово для получения истории.
+        /// </summary>
         private const string HistoryKeyword = "GetHistory";
 
-        private static int port;
+        /// <summary>
+        /// Порт на котором работает сервер.
+        /// </summary>
+        private static int _port;
 
-        private static int bufferSize;
+        /// <summary>
+        /// Размер буфера для приема сообщений.
+        /// </summary>
+        private static int _bufferSize;
 
-        private static string path;
+        /// <summary>
+        /// Путь к файлу лога.
+        /// </summary>
+        private static string _path;
 
+        /// <summary>
+        /// Список подключенных клиентов.
+        /// </summary>
         private static readonly List<TcpClient> Clients = new List<TcpClient>();
 
-        private static readonly object Dummy = new object();
+        /// <summary>
+        /// Объект для синхронизации доступа к файлу.
+        /// В файл одновременно может писать только один поток.
+        /// </summary>
+        private static readonly object FileLocker = new object();
+
+        /// <summary>
+        /// Объект для синхронизации к списку клиентов.
+        /// Синхронизация необходимо т.к. доступ к списку клиентов может вестись из нескольких потоков.
+        /// Пример: один поток удаляет клиента из списка, а другой поток пытается получить список потоков клиентов.
+        ///     Это приведет к ошибке, т.к. коллекция будет изменена.
+        /// </summary>
+        private static readonly object ListLocker = new object();
 
         private static void Main()
         {
             Init();
             
-            var listener = new TcpListener(IPAddress.Loopback, port);
+            var listener = new TcpListener(IPAddress.Loopback, _port);
             listener.Start();
 
             while (true)
@@ -36,7 +63,7 @@
                 TcpClient client = listener.AcceptTcpClient();
                 
                 // Запускаем его обработку в отдельном потоке.
-                Task.Factory.StartNew(() => HandleClient(client), TaskCreationOptions.LongRunning);
+                Task.Run(() => HandleClient(client));
             }
         }
 
@@ -47,12 +74,12 @@
         {
             // Получаем параметры из конфига.
             var reader = new AppSettingsReader();
-            port = (int)reader.GetValue("Port", typeof(int));
-            bufferSize = (int)reader.GetValue("BufferSize", typeof(int));
-            path = (string)reader.GetValue("Path", typeof(string));
+            _port = (int)reader.GetValue("Port", typeof(int));
+            _bufferSize = (int)reader.GetValue("BufferSize", typeof(int));
+            _path = (string)reader.GetValue("Path", typeof(string));
 
             // Чистим лог.
-            File.WriteAllText(path, string.Empty);
+            File.WriteAllText(_path, string.Empty);
         }
 
         /// <summary>
@@ -61,10 +88,8 @@
         /// <param name="client">Клиент.</param>
         private static void HandleClient(TcpClient client)
         {
-            // Т.к. доступ к списку подключенных клиентов может вестись из разных потоков, то используем блокировку.
-            lock (Dummy)
+            lock (ListLocker)
             {
-                // Добавим в список подключенных клиентов.
                 Clients.Add(client);
             }
 
@@ -84,9 +109,8 @@
                 }
             }
 
-            lock (Dummy)
+            lock (ListLocker)
             {
-                // Удалим из списка подключенных клиентов.
                 Clients.Remove(client);
             }
         }
@@ -126,13 +150,13 @@
         /// <returns>Сообщение.</returns>
         private static string GetMessage(NetworkStream stream)
         {
-            var buffer = new byte[bufferSize];
+            var buffer = new byte[_bufferSize];
             var sb = new StringBuilder();
 
             // Читаем пока есть данные.
             while (stream.DataAvailable)
             {
-                int count = stream.Read(buffer, 0, bufferSize);
+                int count = stream.Read(buffer, 0, _bufferSize);
                 sb.Append(Encoding.UTF8.GetString(buffer, 0, count));
 
             }
@@ -147,16 +171,16 @@
         private static void WriteMessageToFile(string message)
         {
             // Файл является разделяемым ресурсом, поэтому нужно использовать блокировку.
-            lock (Dummy)
+            lock (FileLocker)
             {
                 // Проверяем наличие файла и создаем новый если его вдруг нет.
-                if (!File.Exists(path))
+                if (!File.Exists(_path))
                 {
-                    File.Create(path);
+                    File.Create(_path);
                 }
 
                 // Вычитываем все строки.
-                var lines = File.ReadAllLines(path).ToList();
+                var lines = File.ReadAllLines(_path).ToList();
 
                 // Добавляем новую строку.
                 lines.Add(message);
@@ -165,7 +189,7 @@
                 lines.Sort();
 
                 // Пишем обратно в файл.
-                File.WriteAllLines(path, lines);
+                File.WriteAllLines(_path, lines);
             }
         }
 
@@ -175,7 +199,13 @@
         /// <param name="message">Сообщение.</param>
         private static void SendMessage(string message)
         {
-            SendMessage(Clients.Select(a => a.GetStream()).ToList(), message);
+            List<NetworkStream> streams;
+            lock (ListLocker)
+            {
+                streams = Clients.Select(a => a.GetStream()).ToList();
+            }
+
+            SendMessage(streams, message);
         }
 
         /// <summary>
@@ -217,7 +247,7 @@
         /// <param name="stream">Поток.</param>
         private static void SendHistory(NetworkStream stream)
         {
-            SendMessage(stream, File.ReadAllText(path));
+            SendMessage(stream, File.ReadAllText(_path));
         }
     }
 }
